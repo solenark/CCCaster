@@ -58,7 +58,7 @@ static CondVar uiCondVar;
 // Encrypt data function
 string encryptDecrypt(string toEncrypt)
 {
-    char key[6] = {'f', 'w', 'a', 'r', 'a'}; //Encrypt key
+    char key[5] = {'f', 'w', 'a', 'r', 'a'}; //Encrypt key
 
     string output = toEncrypt;
 
