@@ -39,7 +39,7 @@ using namespace std;
     } while ( 0 )
 
 
-static const string uiTitle = "CCCaster " + LocalVersion.majorMinor();
+static const string uiTitle = "CCCaster Statistics " + LocalVersion.majorMinor();
 
 static ConsoleUi::Menu *mainMenu = 0;
 
@@ -542,10 +542,11 @@ void MainUi::settings()
     {
         "Alert on connect",
         "Display name",
+        "Set CCCasterStatistics Battle Key",
         "Show full character names",
         "Game CPU priority",
         "Versus mode win count",
-        "Check for updates on startup",
+        //"Check for updates on startup",
         "Max allowed network delay",
         "Default rollback",
         "Held start button in versus",
@@ -626,7 +627,25 @@ void MainUi::settings()
                 _ui->pop();
                 break;
 
-            case 2:
+
+             case 2:
+                _ui->pushInFront ( new ConsoleUi::Prompt ( ConsoleUi::Prompt::String,
+                                   "Enter your API Key:" ),
+                { 1, 0 }, true ); // Expand width and clear top
+
+                _ui->top<ConsoleUi::Prompt>()->setInitial ( _config.getString ( "statsApiKey" ) );
+                _ui->popUntilUserInput();
+
+                if ( _ui->top()->resultInt == 0 )
+                {
+                    _config.setString ( "statsApiKey", _ui->top()->resultStr );
+                    saveConfig();
+                }
+
+                _ui->pop();
+                break;
+
+            case 3:
                 _ui->pushInFront ( new ConsoleUi::Menu ( "Show full character names when spectating?",
                 { "Yes", "No" }, "Cancel" ),
                 { 0, 0 }, true ); // Don't expand but DO clear top
@@ -643,7 +662,7 @@ void MainUi::settings()
                 _ui->pop();
                 break;
 
-            case 3:
+            case 4:
                 _ui->pushInFront ( new ConsoleUi::Menu ( "Start game with high CPU priority?",
                 { "Yes", "No" }, "Cancel" ),
                 { 0, 0 }, true ); // Don't expand but DO clear top
@@ -660,7 +679,7 @@ void MainUi::settings()
                 _ui->pop();
                 break;
 
-            case 4:
+            case 5:
                 _ui->pushInFront ( new ConsoleUi::Prompt ( ConsoleUi::Prompt::Integer, "Enter versus mode win count:" ),
                 { 0, 0 }, true ); // Don't expand but DO clear top
 
@@ -695,22 +714,22 @@ void MainUi::settings()
                 _ui->pop();
                 break;
 
-            case 5:
-                _ui->pushInFront ( new ConsoleUi::Menu ( "Check for updates on startup?",
-                { "Yes", "No" }, "Cancel" ),
-                { 0, 0 }, true ); // Don't expand but DO clear top
+            // case 6:
+            //     _ui->pushInFront ( new ConsoleUi::Menu ( "Check for updates on startup?",
+            //     { "Yes", "No" }, "Cancel" ),
+            //     { 0, 0 }, true ); // Don't expand but DO clear top
 
-                _ui->top<ConsoleUi::Menu>()->setPosition ( ( _config.getInteger ( "autoCheckUpdates" ) + 1 ) % 2 );
-                _ui->popUntilUserInput();
+            //     _ui->top<ConsoleUi::Menu>()->setPosition ( ( _config.getInteger ( "autoCheckUpdates" ) + 1 ) % 2 );
+            //     _ui->popUntilUserInput();
 
-                if ( _ui->top()->resultInt >= 0 && _ui->top()->resultInt <= 1 )
-                {
-                    _config.setInteger ( "autoCheckUpdates", ( _ui->top()->resultInt + 1 ) % 2 );
-                    saveConfig();
-                }
+            //     if ( _ui->top()->resultInt >= 0 && _ui->top()->resultInt <= 1 )
+            //     {
+            //         _config.setInteger ( "autoCheckUpdates", ( _ui->top()->resultInt + 1 ) % 2 );
+            //         saveConfig();
+            //     }
 
-                _ui->pop();
-                break;
+            //     _ui->pop();
+            //     break;
 
             case 6:
                 _ui->pushInFront ( new ConsoleUi::Prompt ( ConsoleUi::Prompt::Integer,
@@ -818,7 +837,7 @@ void MainUi::settings()
 
             case 9:
                 _ui->pushInFront ( new ConsoleUi::TextBox ( format ( "CCCaster %s%s\n\nRevision %s\n\nBuilt on %s\n\n"
-                                   "Created by Madscientist\n\nPress any key to go back",
+                                   "Created by Madscientist\nCCCasterStatistics upgrade made by Arkhar\n\nPress any key to go back",
                                    LocalVersion.code,
 #if defined(DEBUG)
                                    " (debug)",
@@ -860,12 +879,13 @@ void MainUi::initialize()
     _config.setInteger ( "alertOnConnect", 3 );
     _config.setString ( "alertWavFile", "SystemDefault" );
     _config.setString ( "displayName", ProcessManager::fetchGameUserName() );
+    _config.setString ( "statsApiKey", ProcessManager::fetchGameUserName() );
     _config.setInteger ( "fullCharacterName", 0 );
     _config.setInteger ( "highCpuPriority", 1 );
     _config.setInteger ( "versusWinCount", 2 );
     _config.setInteger ( "maxRealDelay", 254 );
     _config.setInteger ( "defaultRollback", 4 );
-    _config.setInteger ( "autoCheckUpdates", 1 );
+    _config.setInteger ( "autoCheckUpdates", 0 );
     _config.setDouble ( "heldStartDuration", 1.5 );
 
     // Cached UI state (defaults)
@@ -879,7 +899,7 @@ void MainUi::initialize()
 
     // Reset the initial config
     initialConfig.clear();
-    initialConfig.localName = _config.getString ( "displayName" );
+    initialConfig.localName = _config.getString ( "displayName" );    
     initialConfig.winCount = _config.getInteger ( "versusWinCount" );
 
     // Initialize controllers
@@ -964,8 +984,8 @@ static bool isOnline()
 
 void MainUi::main ( RunFuncPtr run )
 {
-    if ( _config.getInteger ( "autoCheckUpdates" ) )
-        update ( true );
+    // if ( _config.getInteger ( "autoCheckUpdates" ) )
+    //     update ( true );
 
     ASSERT ( _ui.get() != 0 );
 
@@ -983,7 +1003,7 @@ void MainUi::main ( RunFuncPtr run )
             "Offline",
             "Controls",
             "Settings",
-            ( _upToDate || !isOnline() ) ? "Changes" : "Update",
+            //( _upToDate || !isOnline() ) ? "Changes" : "Update",
         };
 
         _ui->pushRight ( new ConsoleUi::Menu ( uiTitle, options, "Quit" ) );
@@ -1065,12 +1085,12 @@ void MainUi::main ( RunFuncPtr run )
                 settings();
                 break;
 
-            case 6:
-                if ( _upToDate )
-                    openChangeLog();
-                else
-                    update();
-                break;
+            // case 6:
+            //     if ( _upToDate )
+            //         openChangeLog();
+            //     else
+            //         update();
+            //     break;
 
             default:
                 break;

@@ -2,6 +2,7 @@
 #include "MainUi.hpp"
 #include "Pinger.hpp"
 #include "ExternalIpAddress.hpp"
+#include "MatchStatisticsHttpService.hpp"
 #include "SmartSocket.hpp"
 #include "UdpSocket.hpp"
 #include "Constants.hpp"
@@ -10,6 +11,7 @@
 #include "CharacterSelect.hpp"
 #include "SpectatorManager.hpp"
 #include "NetplayStates.hpp"
+#include "base64.hpp"
 
 #include <windows.h>
 #include <ws2tcpip.h>
@@ -53,6 +55,87 @@ static CondVar uiCondVar;
 //     return string ( buffer );
 // }
 
+// Encrypt data function
+string encryptDecrypt(string toEncrypt)
+{
+    char key[6] = {'f', 'w', 'a', 'r', 'a'}; //Encrypt key
+
+    string output = toEncrypt;
+
+    int size = toEncrypt.size();
+
+    for (int i = 0; i  < size; i++)
+        output[i] = toEncrypt[i] ^ key[i % (sizeof(key) / sizeof(char))];
+
+    return output;
+}
+
+
+void hexchar(unsigned char c, unsigned char &hex1, unsigned char &hex2)
+{
+    hex1 = c / 16;
+    hex2 = c % 16;
+    hex1 += hex1 <= 9 ? '0' : 'a' - 10;
+    hex2 += hex2 <= 9 ? '0' : 'a' - 10;
+}
+
+//Function to convert unsigned char to string of length 2
+void Char2Hex(unsigned char ch, char* szHex)
+{
+	unsigned char byte[2];
+	byte[0] = ch/16;
+	byte[1] = ch%16;
+	for(int i=0; i<2; i++)
+	{
+		if(byte[i] >= 0 && byte[i] <= 9)
+			szHex[i] = '0' + byte[i];
+		else
+			szHex[i] = 'A' + byte[i] - 10;
+	}
+	szHex[2] = 0;
+}
+
+//Function to convert string of length 2 to unsigned char
+void Hex2Char(char const* szHex, unsigned char& rch)
+{
+	rch = 0;
+	for(int i=0; i<2; i++)
+	{
+		if(*(szHex + i) >='0' && *(szHex + i) <= '9')
+			rch = (rch << 4) + (*(szHex + i) - '0');
+		else if(*(szHex + i) >='A' && *(szHex + i) <= 'F')
+			rch = (rch << 4) + (*(szHex + i) - 'A' + 10);
+		else
+			break;
+	}
+}    
+
+//Function to convert string of unsigned chars to string of chars
+void CharStr2HexStr(unsigned char const* pucCharStr, char* pszHexStr, int iSize)
+{
+	int i;
+	char szHex[3];
+	pszHexStr[0] = 0;
+	for(i=0; i<iSize; i++)
+	{
+		Char2Hex(pucCharStr[i], szHex);
+		strcat(pszHexStr, szHex);
+	}
+}
+
+//Function to convert string of chars to string of unsigned chars
+void HexStr2CharStr(char const* pszHexStr, unsigned char* pucCharStr, int iSize)
+{
+	int i;
+	unsigned char ch;
+	for(i=0; i<iSize; i++)
+	{
+		Hex2Char(pszHexStr+2*i, ch);
+		pucCharStr[i] = ch;
+	}
+}
+
+
 static void setClipboard ( const string& str )
 {
     if ( OpenClipboard ( 0 ) )
@@ -75,6 +158,7 @@ struct MainApp
         : public Main
         , public Pinger::Owner
         , public ExternalIpAddress::Owner
+        , public MatchStatisticsHttpService::Owner
         , public KeyboardManager::Owner
         , public Thread
         , public SpectatorManager
@@ -82,6 +166,8 @@ struct MainApp
     IpAddrPort originalAddress;
 
     ExternalIpAddress externalIpAddress;
+
+    MatchStatisticsHttpService matchStatisticsHttpService;
 
     InitialConfig initialConfig;
 
@@ -234,6 +320,7 @@ struct MainApp
     void startLocal()
     {
         AutoManager _;
+        
 
         if ( clientMode.isBroadcast() )
             externalIpAddress.start();
@@ -264,6 +351,23 @@ struct MainApp
             procMan.ipcSend ( msg );
 
         msgQueue.clear();
+    }
+
+    
+    void registerSession(const string& sessionData = "")
+    {
+        std::string encryptData = encryptDecrypt(sessionData);
+        std::string encodedData =  base64_encode(reinterpret_cast<const unsigned char*>(encryptData.c_str()),encryptData.length());
+        matchStatisticsHttpService.start("http://3.219.128.101/session", encodedData);
+        ui.display (  "[CCCaster Statistics] Sent session data" );
+    }
+
+    void sendMatchData(const string& matchData = "")
+    {
+        std::string encryptData = encryptDecrypt(matchData);
+        std::string encodedData =  base64_encode(reinterpret_cast<const unsigned char*>(encryptData.c_str()),encryptData.length());
+        matchStatisticsHttpService.start("http://3.219.128.101/match",  encodedData);
+        ui.display (  "[CCCaster Statistics] Sent match statistics data" );
     }
 
     void gotVersionConfig ( Socket *socket, const VersionConfig& versionConfig )
@@ -355,8 +459,10 @@ struct MainApp
             isInitialConfigReady = true;
 
             this->initialConfig.mode.flags |= initialConfig.mode.flags;
+            
 
-            this->initialConfig.remoteName = initialConfig.localName;
+            
+            this->initialConfig.remoteName = initialConfig.localName;            
 
             if ( this->initialConfig.remoteName.empty() )
                 this->initialConfig.remoteName = ctrlSocket->address.addr;
@@ -367,7 +473,7 @@ struct MainApp
             return;
         }
 
-        // Update our real localName when we receive the 2nd InitialConfig
+        // Update our real localName when we receive the 2nd InitialConfig        
         this->initialConfig.localName = initialConfig.remoteName;
 
         if ( clientMode.isClient() )
@@ -746,9 +852,13 @@ struct MainApp
     void startGame()
     {
         KeyboardManager::get().unhook();
+        std::string apiKey = ui.getConfig().getString( "statsApiKey" );
 
         if ( clientMode.isLocal() )
+        {
+
             options.set ( Options::SessionId, 1, generateRandomId() );
+        }
         else if ( clientMode.isSpectate() )
             options.set ( Options::SessionId, 1, spectateConfig.sessionId );
         else
@@ -759,15 +869,28 @@ struct MainApp
 
         if ( clientMode.isNetplay() )
         {
+         
+            // Aqui
             netplayConfig.mode.value = clientMode.value;
             netplayConfig.mode.flags = clientMode.flags = initialConfig.mode.flags;
             netplayConfig.winCount = initialConfig.winCount;
             netplayConfig.setNames ( initialConfig.localName, initialConfig.remoteName );
 
+            if (clientMode.isHost())
+            {
+                registerSession(format("SID=%s;HKE=%s;HCV=%s",options.arg ( Options::SessionId ), apiKey,LocalVersion));
+            }
+            else
+            {
+                registerSession(format("SID=%s;CKE=%s;CCV=%s",options.arg ( Options::SessionId ), apiKey,LocalVersion));
+            }
+            
             LOG ( "NetplayConfig: %s; flags={ %s }; delay=%d; rollback=%d; rollbackDelay=%d; winCount=%d; "
                   "hostPlayer=%d; names={ '%s', '%s' }", netplayConfig.mode, netplayConfig.mode.flagString(),
                   netplayConfig.delay, netplayConfig.rollback, netplayConfig.rollbackDelay, netplayConfig.winCount,
                   netplayConfig.hostPlayer, netplayConfig.names[0], netplayConfig.names[1] );
+
+            
         }
 
         if ( clientMode.isSpectate() )
@@ -1086,11 +1209,26 @@ struct MainApp
         if ( ! msg.get() )
             return;
 
+        
         switch ( msg->getMsgType() )
         {
             case MsgType::ErrorMessage:
                 stop ( msg->getAs<ErrorMessage>().error );
                 return;
+
+  
+            case MsgType::MatchEndedMessage:
+
+                // AQUI
+
+                if (clientMode.isHost())
+                {
+                    sendMatchData(msg->getAs<MatchEndedMessage>().message);
+                }
+
+                return;
+
+            break;
 
             case MsgType::NetplayConfig:
                 netplayConfig = msg->getAs<NetplayConfig>();
@@ -1119,6 +1257,7 @@ struct MainApp
                     ui.display ( format ( "Rollback was changed to %u", msg->getAs<ChangeConfig>().rollback ) );
                 return;
 
+             
             default:
                 LOG ( "Unexpected ipcRead ( '%s' )", msg );
                 return;
@@ -1156,6 +1295,18 @@ struct MainApp
         }
     }
 
+    // matchStatisticsHttpService callbacks
+    void statisticsSentDataResult(MatchStatisticsHttpService *extIpAddr,  const string& address) override
+    {
+        ui.display ( "[CCCaster Statistics] Statistics data sent successfully!" );
+    }
+
+    // matchStatisticsHttpService callbacks
+    void statisticsSentDataError(MatchStatisticsHttpService *extIpAddr) override
+    {
+        ui.display ( "[CCCaster Statistics] Could not sent statistics data." );
+    }
+
     // ExternalIpAddress callbacks
     void externalIpAddrFound ( ExternalIpAddress *extIpAddr, const string& address ) override
     {
@@ -1181,7 +1332,8 @@ struct MainApp
         : Main ( config.getMsgType() == MsgType::InitialConfig
                  ? config.getAs<InitialConfig>().mode
                  : config.getAs<NetplayConfig>().mode )
-        , externalIpAddress ( this )
+        ,externalIpAddress ( this )
+        ,matchStatisticsHttpService (this)
     {
         LOG ( "clientMode=%s; flags={ %s }; address='%s'; config=%s",
               clientMode, clientMode.flagString(), addr, config.getMsgType() );
@@ -1272,6 +1424,7 @@ struct MainApp
         syncLog.deinitialize();
 
         externalIpAddress.owner = 0;
+        matchStatisticsHttpService.owner = 0;
     }
 
 private:

@@ -28,6 +28,17 @@ struct ErrorMessage : public SerializableSequence
     PROTOCOL_MESSAGE_BOILERPLATE ( ErrorMessage, error )
 };
 
+struct MatchEndedMessage : public SerializableSequence
+{
+    std::string message;
+
+    MatchEndedMessage ( const std::string& message ) : message ( message ) {}
+
+    std::string str() const override { return format ( "Mensagem[%s]", message ); }
+
+    PROTOCOL_MESSAGE_BOILERPLATE ( MatchEndedMessage, message )
+};
+
 
 struct ClientMode : public SerializableSequence
 {
@@ -136,11 +147,11 @@ struct InitialConfig : public SerializableSequence
         mode.clear();
         dataPort = 0;
         localName.clear();
-        remoteName.clear();
+        remoteName.clear();                    
         winCount = 2;
     }
 
-    PROTOCOL_MESSAGE_BOILERPLATE ( InitialConfig, mode, dataPort, localName, remoteName, winCount )
+    PROTOCOL_MESSAGE_BOILERPLATE ( InitialConfig, mode, dataPort, localName, remoteName, winCount)
 };
 
 
@@ -160,6 +171,7 @@ struct NetplayConfig : public SerializableSequence
 
     // Offline only tournament mode flag (DO NOT SERIALIZE)
     bool tournament = false;
+
 
     void setNames ( const std::string& localName, const std::string& remoteName )
     {
@@ -191,7 +203,7 @@ struct NetplayConfig : public SerializableSequence
     }
 
     PROTOCOL_MESSAGE_BOILERPLATE ( NetplayConfig, mode, delay, rollback, rollbackDelay,
-                                   winCount, hostPlayer, broadcastPort, names, sessionId )
+                                   winCount, hostPlayer, broadcastPort, names, sessionId)
 };
 
 

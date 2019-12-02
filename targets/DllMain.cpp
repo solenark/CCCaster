@@ -99,6 +99,9 @@ struct DllMain
         , public SpectatorManager
         , public DllControllerManager
 {
+    // Match Index (NetStats)
+    int matchIndex = 0;
+
     // NetplayManager instance
     NetplayManager netMan;
 
@@ -138,6 +141,10 @@ struct DllMain
 
     // If the delay and/or rollback should be changed
     bool shouldChangeDelayRollback = false;
+
+    // If the match has ended
+    bool shouldAnnounceMatchHasEnded = false;
+    std::string matchEndedMessage = "";
 
     // Latest ChangeConfig for changing delay/rollback
     ChangeConfig changeConfig;
@@ -198,14 +205,24 @@ struct DllMain
 
                     // Delayed round over check
                     if ( roundOverTimer > 0 )
+                    {
                         --roundOverTimer;
+                    }
+                        
+                    
                 }
+
+                
 
             case NetplayState::CharaSelect:
             case NetplayState::Loading:
             case NetplayState::Skippable:
+            {
+                
+            }
             case NetplayState::RetryMenu:
             {
+             
                 // Fast-forward if spectator
                 if ( spectateFastFwd && clientMode.isSpectate() && netMan.getState() != NetplayState::Loading )
                 {
@@ -613,6 +630,78 @@ struct DllMain
                 minRollbackSpacing = clamped<uint8_t> ( netMan.getRollback(), 2, 4 );
                 procMan.ipcSend ( changeConfig );
             }
+        }
+
+           // Update delay and/or rollback if necessary
+        if ( shouldChangeDelayRollback )
+        {
+            shouldChangeDelayRollback = false;
+
+            if ( changeConfig.delay < 0xFF && changeConfig.delay != netMan.getDelay() )
+            {
+                LOG ( "Input delay was changed %u -> %u", netMan.getDelay(), changeConfig.delay );
+                DllOverlayUi::showMessage ( format ( "Input delay was changed to %u", changeConfig.delay ) );
+                netMan.setDelay ( changeConfig.delay );
+                procMan.ipcSend ( changeConfig );
+            }
+
+            if ( changeConfig.rollback <= MAX_ROLLBACK && changeConfig.rollback != netMan.getRollback() )
+            {
+                LOG ( "Rollback was changed %u -> %u", netMan.getRollback(), changeConfig.rollback );
+                DllOverlayUi::showMessage ( format ( "Rollback was changed to %u", changeConfig.rollback ) );
+                netMan.setRollback ( changeConfig.rollback );
+                minRollbackSpacing = clamped<uint8_t> ( netMan.getRollback(), 2, 4 );
+                procMan.ipcSend ( changeConfig );
+            }
+        }
+
+        if (netMan.getState() == NetplayState::RetryMenu && shouldAnnounceMatchHasEnded)
+        {
+            // AQUI
+            shouldAnnounceMatchHasEnded = false;
+
+
+            if (clientMode.isHost())
+            {
+                std::string matchEndedResult = "";
+
+                if ( netMan.config.hostPlayer == 1)
+                {
+                    
+                    matchEndedResult= format("SID=%s;IDX=%u;HCH=%u;HMO=%u;HVI=%u;HPN=1;CCH=%u;CMO=%u;CVI=%u;CPN=2",
+                            netMan.config.sessionId,
+                            matchIndex,
+                            *CC_P1_CHARACTER_ADDR,
+                            *CC_P1_MOON_SELECTOR_ADDR, 
+                            *CC_P1_WINS_ADDR,        
+                            *CC_P2_CHARACTER_ADDR,
+                            *CC_P2_MOON_SELECTOR_ADDR, 
+                            *CC_P2_WINS_ADDR).c_str();
+                }
+                else
+                {
+                    matchEndedResult= format("SID=%s;IDX=%u;HCH=%u;HMO=%u;HVI=%u;HPN=2;CCH=%u;CMO=%u;CVI=%u;CPN=1",
+                            netMan.config.sessionId,
+                            matchIndex,
+                            *CC_P2_CHARACTER_ADDR,
+                            *CC_P2_MOON_SELECTOR_ADDR, 
+                            *CC_P2_WINS_ADDR,
+                            *CC_P1_CHARACTER_ADDR,
+                            *CC_P1_MOON_SELECTOR_ADDR, 
+                            *CC_P1_WINS_ADDR).c_str();
+
+                }
+
+                procMan.ipcSend ( new MatchEndedMessage ( matchEndedResult ) );
+            }
+
+            matchIndex = matchIndex + 1;
+            
+        }
+
+        if (netMan.getState() == NetplayState::InGame)
+        {
+            shouldAnnounceMatchHasEnded = true;
         }
 
         // LOG_SYNC ( "SFX 0x%X: CC_SFX_ARRAY=%u; sfxFilterArray=%u; sfxMuteArray=%u", SFX_NUM,
@@ -1453,7 +1542,8 @@ struct DllMain
             return;
 
         switch ( msg->getMsgType() )
-        {
+        {            
+
             case MsgType::OptionsMessage:
                 options = msg->getAs<OptionsMessage>();
 
