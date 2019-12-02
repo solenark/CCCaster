@@ -1,3 +1,21 @@
+# About
+
+This is a mod from MadScientist's masterpiece CCCaster, named "CCCaster Statistics".
+
+In simple words, the CCCaster Statistics mod modifies the CCCaster application to capture every online match result, process and send the data to a online database.
+The data sent, are:
+
+- Choosen Characters and Moons
+- Match result for each player (won rounds)
+- Player's battle keys (for player data binding)
+
+CCCaster Statistics its compatible with the CCCaster v3.0a.020 (unofficial) version. However, the match data will not be recorded.
+This project was idealized by the brazillian Melty Blood player Arkhar, and supported by the communities MeltyBrasil and MeltySud. Its an open-souce project.
+
+More info can be found at: [Melty Stats](https://meltystats.com/welcome)
+
+# MadScientist orignal documentation
+
 Netplay tool for Melty Blood Actress Again Current Code
 
     Public domain, no license, no warranty. Here be dragons.
