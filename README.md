@@ -14,7 +14,7 @@ This project was idealized by the brazillian Melty Blood player Arkhar, and supp
 
 More info can be found at: [Melty Stats](https://meltystats.com/welcome)
 
-# MadScientist orignal documentation
+# MadScientist original documentation
 
 Netplay tool for Melty Blood Actress Again Current Code
 
