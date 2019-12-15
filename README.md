@@ -14,6 +14,36 @@ This project was idealized by the brazillian Melty Blood player Arkhar, and supp
 
 More info can be found at: [Melty Stats](https://meltystats.com/welcome)
 
+# Build Environment
+
+I set my build environment using the following Ubuntu distro:
+
+```
+Distributor ID: Ubuntu
+Description:    Ubuntu 18.04.2 LTS
+Release:        18.04
+Codename:       bionic
+```
+
+If you are a Windows 10 user, like me, you can get this distro easily by installing the following app on Microsoft Store: https://www.microsoft.com/pt-br/p/ubuntu/9nblggh4msv6
+
+Starting from the scratch, i need to install the following packages:
+
+```
+apt-get update
+apt-get install gcc-mingw-w64 -y
+apt-get install make -y
+apt-get install git -y
+apt-get install rsync -y
+apt-get install g++-mingw-w64-i686 mingw-w64-i686-dev -y
+apt-get install zip -y
+```
+After that, the environment is ready to build. If you want, by example, to build a release CCCaster version, go to the CCCaster source code directory on the environment and use the following command:
+
+```
+make --no-print-directory target-release BUILD_TYPE=build_release
+```
+
 # MadScientist original documentation
 
 Netplay tool for Melty Blood Actress Again Current Code

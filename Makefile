@@ -53,8 +53,8 @@ DLL_OBJECTS = $(DLL_CPP_SRCS:.cpp=.o) $(HOOK_CC_SRCS:.cc=.o) $(HOOK_C_SRCS:.c=.o
 PREFIX = i686-w64-mingw32-
 GCC = $(PREFIX)gcc
 CXX = $(PREFIX)g++
-WINDRES = windres
-STRIP = strip
+WINDRES = i686-w64-mingw32-windres
+STRIP = i686-w64-mingw32-strip
 TOUCH = touch
 ZIP = zip
 
@@ -190,7 +190,7 @@ res/rollback.bin: tools/$(GENERATOR)
 	@echo
 
 res/rollback.o: res/rollback.bin
-	objcopy -I binary -O elf32-i386 -B i386 $< $@
+	i686-w64-mingw32-objcopy -I binary -O elf32-i386 -B i386 $< $@
 	@echo
 
 res/icon.res: res/icon.rc res/icon.ico
