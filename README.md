@@ -27,7 +27,7 @@ Codename:       bionic
 
 If you are a Windows 10 user, like me, you can get this distro easily by installing the following app on Microsoft Store: https://www.microsoft.com/pt-br/p/ubuntu/9nblggh4msv6
 
-Starting from the scratch, i need to install the following packages:
+Starting from the scratch, i needed to install the following packages:
 
 ```
 apt-get update
