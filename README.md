@@ -25,7 +25,7 @@ Release:        18.04
 Codename:       bionic
 ```
 
-If you are a Windows 10 user, like me, you can get this distro easily by installing the following app on Microsoft Store: https://www.microsoft.com/pt-br/p/ubuntu/9nblggh4msv6
+If you are a Windows 10 user, like me, you can get this distro easily by installing the following app on Microsoft Store: https://www.microsoft.com/pt-br/p/ubuntu-1804-lts/9n9tngvndl3q?activetab=pivot:overviewtab
 
 Starting from the scratch, i needed to install the following packages:
 
