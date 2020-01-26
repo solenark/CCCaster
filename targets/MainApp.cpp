@@ -31,7 +31,7 @@ extern string lastError;
 
 static Mutex uiMutex;
 
-static bool shouldRunLobbyLoop;
+static bool shouldRunLobbyLoop; // Controls whether the lobby loop should be kept running
 
 static CondVar uiCondVar;
 
@@ -155,6 +155,46 @@ static void setClipboard ( const string& str )
         LOG ( "OpenClipboard failed: %s", WinException::getLastError() );
     }
 }
+
+// [MeltyStats] => Lobby Polling Thread Logic
+// TODO => Implement correct lobby Backend Logic (Creating entry) and Test
+struct LobbyThread : public MatchStatisticsHttpService::Owner, public Thread
+{
+    MatchStatisticsHttpService matchStatisticsHttpService;
+    string apiEndpoint;
+
+    LobbyThread()
+        : matchStatisticsHttpService(this)
+    {
+
+    }
+
+    void statisticsSentDataResult(MatchStatisticsHttpService *extIpAddr,  const string& address) override
+    {
+        LOG ( "Lobby sent data with success" );
+    }
+
+    void statisticsSentDataError(MatchStatisticsHttpService *extIpAddr) override
+    {
+        LOG ( "Could not send lobby data" );
+    }
+
+
+    void run() override
+    { 
+
+        while (shouldRunLobbyLoop)
+        {               
+            matchStatisticsHttpService.start( ui.getConfig().getString( "statsApiEndpoint" ) +  "/test",  "[+] Lobby is running!");
+            
+            Sleep(5000);
+        }
+
+        matchStatisticsHttpService.start( ui.getConfig().getString( "statsApiEndpoint" ) +  "/test",  "[-] Lobby is NOT running!");
+        
+        return;
+    }
+};
 
 struct MainApp
         : public Main
@@ -362,16 +402,16 @@ struct MainApp
     {
         std::string encryptData = encryptDecrypt(sessionData);
         std::string encodedData =  base64_encode(reinterpret_cast<const unsigned char*>(encryptData.c_str()),encryptData.length());
-        matchStatisticsHttpService.start("http://3.219.128.101/session", encodedData);
-        ui.display (  "[CCCaster Statistics] Sent session data" );
+        matchStatisticsHttpService.start(ui.getConfig().getString( "statsApiEndpoint" ) +  "/session", encodedData);
+        ui.display (  "CCCaster Statistics: Sent session data" );
     }
 
     void sendMatchData(const string& matchData = "")
     {
         std::string encryptData = encryptDecrypt(matchData);
         std::string encodedData =  base64_encode(reinterpret_cast<const unsigned char*>(encryptData.c_str()),encryptData.length());
-        matchStatisticsHttpService.start("http://3.219.128.101/match",  encodedData);
-        ui.display (  "[CCCaster Statistics] Sent match statistics data" );
+        matchStatisticsHttpService.start(ui.getConfig().getString( "statsApiEndpoint" ) +  "/match",  encodedData);
+        ui.display (  "CCCasterStatistics: Sent match statistics data" );
     }
 
     void gotVersionConfig ( Socket *socket, const VersionConfig& versionConfig )
@@ -662,61 +702,22 @@ struct MainApp
         LOCK ( uiMutex );
         uiCondVar.signal();
     }
-
-    struct LobbyThread : public MatchStatisticsHttpService::Owner, public Thread
-    {
-        MatchStatisticsHttpService matchStatisticsHttpService;
-
-        LobbyThread()
-            : matchStatisticsHttpService(this)
-        {
-
-        }
-   
-
-        // matchStatisticsHttpService callbacks
-        void statisticsSentDataResult(MatchStatisticsHttpService *extIpAddr,  const string& address) override
-        {
-            LOG ( "Lobby Success" );
-        }
-
-        // matchStatisticsHttpService callbacks
-        void statisticsSentDataError(MatchStatisticsHttpService *extIpAddr) override
-        {
-            LOG ( "Lobby Error" );
-        }
-
-
-        void run() override
-        { 
-
-            while (shouldRunLobbyLoop)
-            {   
-                matchStatisticsHttpService.start("http://localhost/test",  "+ Lobby is running");
-                Sleep(5000);
-            }
-
-            matchStatisticsHttpService.start("http://localhost/test",  "! Lobby is NOT running");
-            
-            return;
-        }
-    };
-
   
     void waitForUserConfirmation()
     {
+        // [MeltyStats] => Asynchronous lobby thread
+        if ( ui.getConfig().getInteger( "shouldEnterMeltyStatsLobby" ) == 1 )
+        {
+            ThreadPtr lobbyThread ( new LobbyThread() );
+
+            lobbyThread->start();
+
+            EventManager::get().addThread ( lobbyThread );
+
+            shouldRunLobbyLoop = true;
+        }
+        
         // This runs a different thread waiting for user confirmation
-        // LOBBY
-                
-        ThreadPtr lobbyThread ( new LobbyThread() );
-        lobbyThread->start();
-
-        EventManager::get().addThread ( lobbyThread );
-
-        shouldRunLobbyLoop = true;
-
-        // End Lobby
-
         LOCK ( uiMutex );
         uiCondVar.wait ( uiMutex );
 
@@ -910,8 +911,7 @@ struct MainApp
 
     void startGame()
     {
-        KeyboardManager::get().unhook();
-        std::string apiKey = ui.getConfig().getString( "statsApiKey" );
+        KeyboardManager::get().unhook();        
 
         if ( clientMode.isLocal() )
         {
@@ -928,20 +928,21 @@ struct MainApp
 
         if ( clientMode.isNetplay() )
         {
-         
-            // Aqui
+                     
             netplayConfig.mode.value = clientMode.value;
             netplayConfig.mode.flags = clientMode.flags = initialConfig.mode.flags;
             netplayConfig.winCount = initialConfig.winCount;
             netplayConfig.setNames ( initialConfig.localName, initialConfig.remoteName );
 
+
+            // [MeltyStats] => Registering the session (booth host and client should register the session)
             if (clientMode.isHost())
             {
-                registerSession(format("SID=%s;HKE=%s;HCV=%s",options.arg ( Options::SessionId ), apiKey,LocalVersion));
+                registerSession(format("SID=%s;HKE=%s;HCV=%s",options.arg ( Options::SessionId ), ui.getConfig().getString( "statsApiKey" ),LocalVersion));
             }
             else
             {
-                registerSession(format("SID=%s;CKE=%s;CCV=%s",options.arg ( Options::SessionId ), apiKey,LocalVersion));
+                registerSession(format("SID=%s;CKE=%s;CCV=%s",options.arg ( Options::SessionId ), ui.getConfig().getString( "statsApiKey" ),LocalVersion));
             }
             
             LOG ( "NetplayConfig: %s; flags={ %s }; delay=%d; rollback=%d; rollbackDelay=%d; winCount=%d; "
@@ -1275,11 +1276,23 @@ struct MainApp
                 stop ( msg->getAs<ErrorMessage>().error );
                 return;
 
+            case MsgType::MatchStartedMessage:
+
+                // [MeltyStats] => Send Match Data on Event notification
+                // TODO => Implement correct lobby updated logic (and do it on the backend too)
+                if (clientMode.isHost())
+                {
+                    sendMatchData(msg->getAs<MatchStartedMessage>().message);
+                }
+
+                return;
+
+            break;
+
   
             case MsgType::MatchEndedMessage:
 
-                // AQUI
-
+                // [MeltyStats] => Send Match Data on Event notification                
                 if (clientMode.isHost())
                 {
                     sendMatchData(msg->getAs<MatchEndedMessage>().message);
@@ -1354,16 +1367,20 @@ struct MainApp
         }
     }
 
-    // matchStatisticsHttpService callbacks
+    // [MeltyStats] => matchStatisticsHttpService callbacks
+    // TODO => Perform properly error handling
     void statisticsSentDataResult(MatchStatisticsHttpService *extIpAddr,  const string& address) override
     {
-        ui.display ( "[CCCaster Statistics] Statistics data sent successfully!" );
+        // ui.display ( "[CCCaster Statistics] Statistics data sent successfully!" );
+        LOG ( "[CCCaster Statistics] Statistics data sent successfully!" );
     }
 
-    // matchStatisticsHttpService callbacks
+    // [MeltyStats] => matchStatisticsHttpService callbacks
+    // TODO => Perform properly error handling
     void statisticsSentDataError(MatchStatisticsHttpService *extIpAddr) override
     {
-        ui.display ( "[CCCaster Statistics] Could not sent statistics data." );
+        // ui.display ( "[CCCaster Statistics] Could not sent statistics data." );
+        LOG ( "[CCCaster Statistics] Could not sent statistics data." );
     }
 
     // ExternalIpAddress callbacks

@@ -142,9 +142,11 @@ struct DllMain
     // If the delay and/or rollback should be changed
     bool shouldChangeDelayRollback = false;
 
+    // If the match has started
+    bool shouldAnnounceMatchHasStarted = true;
+
     // If the match has ended
     bool shouldAnnounceMatchHasEnded = false;
-    std::string matchEndedMessage = "";
 
     // Latest ChangeConfig for changing delay/rollback
     ChangeConfig changeConfig;
@@ -632,7 +634,7 @@ struct DllMain
             }
         }
 
-           // Update delay and/or rollback if necessary
+        // Update delay and/or rollback if necessary
         if ( shouldChangeDelayRollback )
         {
             shouldChangeDelayRollback = false;
@@ -655,11 +657,48 @@ struct DllMain
             }
         }
 
-        if (netMan.getState() == NetplayState::RetryMenu && shouldAnnounceMatchHasEnded)
-        {
-            // AQUI
-            shouldAnnounceMatchHasEnded = false;
 
+        // [MeltyStats] => Registering that match has started
+        // TODO => Pass correct lobby update info and Test
+        if (netMan.getState() == NetplayState::InGame && shouldAnnounceMatchHasStarted)
+        {            
+            shouldAnnounceMatchHasStarted = false;
+
+            if (clientMode.isHost())
+            {
+                std::string matchStartedInfo = "";
+
+                if ( netMan.config.hostPlayer == 1)
+                {
+                    
+                    matchStartedInfo= format("SID=%s;IDX=%u;HCH=%u;HMO=%u;HPN=1;CCH=%u;CMO=%u;CPN=2",
+                            netMan.config.sessionId,
+                            matchIndex,
+                            *CC_P1_CHARACTER_ADDR,
+                            *CC_P1_MOON_SELECTOR_ADDR,                             
+                            *CC_P2_CHARACTER_ADDR,
+                            *CC_P2_MOON_SELECTOR_ADDR).c_str();
+                }
+                else
+                {
+                    matchStartedInfo= format("SID=%s;IDX=%u;HCH=%u;HMO=%u;HPN=2;CCH=%u;CMO=%u;CPN=1",
+                            netMan.config.sessionId,
+                            matchIndex,
+                            *CC_P2_CHARACTER_ADDR,
+                            *CC_P2_MOON_SELECTOR_ADDR,                             
+                            *CC_P1_CHARACTER_ADDR,
+                            *CC_P1_MOON_SELECTOR_ADDR).c_str();
+
+                }
+
+                procMan.ipcSend ( new MatchStartedMessage ( matchStartedInfo ) );
+            }
+        }
+
+        // [MeltyStats] => Registering the current match data
+        if (netMan.getState() == NetplayState::RetryMenu && shouldAnnounceMatchHasEnded)
+        {            
+            shouldAnnounceMatchHasEnded = false;
 
             if (clientMode.isHost())
             {
@@ -698,7 +737,15 @@ struct DllMain
             matchIndex = matchIndex + 1;
             
         }
+    
+        // [MeltyStats] => Updating control variable (match started)
+        // TODO => Test
+        if (netMan.getState() == NetplayState::RetryMenu)
+        {
+            shouldAnnounceMatchHasStarted = true;
+        }
 
+        // [MeltyStats] => Updating control variable (match ended)
         if (netMan.getState() == NetplayState::InGame)
         {
             shouldAnnounceMatchHasEnded = true;
