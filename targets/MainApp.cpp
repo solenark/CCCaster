@@ -31,6 +31,8 @@ extern string lastError;
 
 static Mutex uiMutex;
 
+static bool shouldRunLobbyLoop;
+
 static CondVar uiCondVar;
 
 
@@ -338,6 +340,8 @@ struct MainApp
 
         EventManager::get().stop();
 
+        shouldRunLobbyLoop = false;
+
         LOCK ( uiMutex );
         uiCondVar.signal();
     }
@@ -618,6 +622,8 @@ struct MainApp
 
     void getUserConfirmation()
     {
+        shouldRunLobbyLoop = false;
+
         // Disable keyboard hooks for the UI
         KeyboardManager::get().unhook();
 
@@ -657,11 +663,64 @@ struct MainApp
         uiCondVar.signal();
     }
 
+    struct LobbyThread : public MatchStatisticsHttpService::Owner, public Thread
+    {
+        MatchStatisticsHttpService matchStatisticsHttpService;
+
+        LobbyThread()
+            : matchStatisticsHttpService(this)
+        {
+
+        }
+   
+
+        // matchStatisticsHttpService callbacks
+        void statisticsSentDataResult(MatchStatisticsHttpService *extIpAddr,  const string& address) override
+        {
+            LOG ( "Lobby Success" );
+        }
+
+        // matchStatisticsHttpService callbacks
+        void statisticsSentDataError(MatchStatisticsHttpService *extIpAddr) override
+        {
+            LOG ( "Lobby Error" );
+        }
+
+
+        void run() override
+        { 
+
+            while (shouldRunLobbyLoop)
+            {   
+                matchStatisticsHttpService.start("http://localhost/test",  "+ Lobby is running");
+                Sleep(5000);
+            }
+
+            matchStatisticsHttpService.start("http://localhost/test",  "! Lobby is NOT running");
+            
+            return;
+        }
+    };
+
+  
     void waitForUserConfirmation()
     {
         // This runs a different thread waiting for user confirmation
+        // LOBBY
+                
+        ThreadPtr lobbyThread ( new LobbyThread() );
+        lobbyThread->start();
+
+        EventManager::get().addThread ( lobbyThread );
+
+        shouldRunLobbyLoop = true;
+
+        // End Lobby
+
         LOCK ( uiMutex );
         uiCondVar.wait ( uiMutex );
+
+        shouldRunLobbyLoop = false;
 
         if ( ! EventManager::get().isRunning() )
             return;
