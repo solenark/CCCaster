@@ -33,6 +33,8 @@ static Mutex uiMutex;
 
 static bool shouldRunLobbyLoop; // Controls whether the lobby loop should be kept running
 
+static std::string lobbyEntryData = "";
+
 static CondVar uiCondVar;
 
 
@@ -157,16 +159,16 @@ static void setClipboard ( const string& str )
 }
 
 // [MeltyStats] => Lobby Polling Thread Logic
-// TODO => Implement correct lobby Backend Logic (Creating entry) and Test
-struct LobbyThread : public MatchStatisticsHttpService::Owner, public Thread
+struct LobbyWaitingThread : public MatchStatisticsHttpService::Owner, public Thread
 {
     MatchStatisticsHttpService matchStatisticsHttpService;
-    string apiEndpoint;
+    std::string* dataToSend;
 
-    LobbyThread()
+    LobbyWaitingThread(std::string* lobbyEntryData)
         : matchStatisticsHttpService(this)
     {
-
+        dataToSend = lobbyEntryData;
+        
     }
 
     void statisticsSentDataResult(MatchStatisticsHttpService *extIpAddr,  const string& address) override
@@ -179,18 +181,21 @@ struct LobbyThread : public MatchStatisticsHttpService::Owner, public Thread
         LOG ( "Could not send lobby data" );
     }
 
-
     void run() override
     { 
-
         while (shouldRunLobbyLoop)
-        {               
-            matchStatisticsHttpService.start( ui.getConfig().getString( "statsApiEndpoint" ) +  "/test",  "[+] Lobby is running!");
-            
-            Sleep(5000);
+        {
+            if (*dataToSend == "")
+            {
+                LOG ( "Waiting for Lobby data to be generated" );
+                Sleep(1000);
+            }
+            else
+            {
+                matchStatisticsHttpService.start( ui.getConfig().getString( "statsApiEndpoint" ) +  "/lobby",  *dataToSend);
+                Sleep(60000);
+            }            
         }
-
-        matchStatisticsHttpService.start( ui.getConfig().getString( "statsApiEndpoint" ) +  "/test",  "[-] Lobby is NOT running!");
         
         return;
     }
@@ -403,15 +408,23 @@ struct MainApp
         std::string encryptData = encryptDecrypt(sessionData);
         std::string encodedData =  base64_encode(reinterpret_cast<const unsigned char*>(encryptData.c_str()),encryptData.length());
         matchStatisticsHttpService.start(ui.getConfig().getString( "statsApiEndpoint" ) +  "/session", encodedData);
-        ui.display (  "CCCaster Statistics: Sent session data" );
+        LOG (  "CCCaster Statistics: Sent session data" );
     }
 
-    void sendMatchData(const string& matchData = "")
+    void sendMatchStartedData(const string& matchData = "")
+    {
+        std::string encryptData = encryptDecrypt(matchData);
+        std::string encodedData =  base64_encode(reinterpret_cast<const unsigned char*>(encryptData.c_str()),encryptData.length());
+        matchStatisticsHttpService.start(ui.getConfig().getString( "statsApiEndpoint" ) +  "/lobby",  encodedData);
+        LOG (  "CCCasterStatistics: Sent match statistics data" );
+    }
+
+    void sendMatchEndedData(const string& matchData = "")
     {
         std::string encryptData = encryptDecrypt(matchData);
         std::string encodedData =  base64_encode(reinterpret_cast<const unsigned char*>(encryptData.c_str()),encryptData.length());
         matchStatisticsHttpService.start(ui.getConfig().getString( "statsApiEndpoint" ) +  "/match",  encodedData);
-        ui.display (  "CCCasterStatistics: Sent match statistics data" );
+        LOG (  "CCCasterStatistics: Sent match statistics data" );
     }
 
     void gotVersionConfig ( Socket *socket, const VersionConfig& versionConfig )
@@ -706,9 +719,9 @@ struct MainApp
     void waitForUserConfirmation()
     {
         // [MeltyStats] => Asynchronous lobby thread
-        if ( ui.getConfig().getInteger( "shouldEnterMeltyStatsLobby" ) == 1 )
-        {
-            ThreadPtr lobbyThread ( new LobbyThread() );
+        if ( ui.getConfig().getInteger( "shouldEnterMeltyStatsLobby" ) == 1  && clientMode.isHost())
+        {            
+            ThreadPtr lobbyThread ( new LobbyWaitingThread(&lobbyEntryData) );
 
             lobbyThread->start();
 
@@ -1279,10 +1292,9 @@ struct MainApp
             case MsgType::MatchStartedMessage:
 
                 // [MeltyStats] => Send Match Data on Event notification
-                // TODO => Implement correct lobby updated logic (and do it on the backend too)
-                if (clientMode.isHost())
+                if (clientMode.isHost() && ui.getConfig().getInteger( "shouldEnterMeltyStatsLobby" ) == 1 )
                 {
-                    sendMatchData(msg->getAs<MatchStartedMessage>().message);
+                    sendMatchStartedData(msg->getAs<MatchStartedMessage>().message);
                 }
 
                 return;
@@ -1295,7 +1307,7 @@ struct MainApp
                 // [MeltyStats] => Send Match Data on Event notification                
                 if (clientMode.isHost())
                 {
-                    sendMatchData(msg->getAs<MatchEndedMessage>().message);
+                    sendMatchEndedData(msg->getAs<MatchEndedMessage>().message);
                 }
 
                 return;
@@ -1370,16 +1382,14 @@ struct MainApp
     // [MeltyStats] => matchStatisticsHttpService callbacks
     // TODO => Perform properly error handling
     void statisticsSentDataResult(MatchStatisticsHttpService *extIpAddr,  const string& address) override
-    {
-        // ui.display ( "[CCCaster Statistics] Statistics data sent successfully!" );
+    {        
         LOG ( "[CCCaster Statistics] Statistics data sent successfully!" );
     }
 
     // [MeltyStats] => matchStatisticsHttpService callbacks
     // TODO => Perform properly error handling
     void statisticsSentDataError(MatchStatisticsHttpService *extIpAddr) override
-    {
-        // ui.display ( "[CCCaster Statistics] Could not sent statistics data." );
+    {        
         LOG ( "[CCCaster Statistics] Could not sent statistics data." );
     }
 
@@ -1539,6 +1549,9 @@ private:
         else
         {
             setClipboard ( format ( "%s:%u", externalIpAddress.address, port ) );
+
+            std::string encryptLobbyEntryData = encryptDecrypt(format("HKE=%s;HCV=%s;HIP=%s;HPO=%s",ui.getConfig().getString( "statsApiKey" ),LocalVersion,externalIpAddress.address, std::to_string(( clientMode.isBroadcast() ? netplayConfig.broadcastPort : address.port ))));            
+            lobbyEntryData = base64_encode(reinterpret_cast<const unsigned char*>(encryptLobbyEntryData.c_str()),encryptLobbyEntryData.length());;
 
             ui.display ( format ( "%s at %s:%u%s\n(Address copied to clipboard)",
                                   ( clientMode.isBroadcast() ? "Broadcasting" : "Hosting" ),

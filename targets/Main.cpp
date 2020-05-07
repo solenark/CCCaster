@@ -83,14 +83,6 @@ static bool initDirsAndSanityCheck ( bool checkGameExe = true )
         success = false;
     }
 
-    val = GetFileAttributes ( RELAY_LIST );
-
-    if ( val == INVALID_FILE_ATTRIBUTES )
-    {
-        lastError += "\nMissing " RELAY_LIST "!";
-        success = false;
-    }
-
     if ( opt[Options::GameDir] && opt[Options::GameDir].arg )
     {
         ProcessManager::gameDir = opt[Options::GameDir].arg;
@@ -103,6 +95,14 @@ static bool initDirsAndSanityCheck ( bool checkGameExe = true )
     else
     {
         ProcessManager::gameDir = ProcessManager::appDir;
+    }
+
+    val = GetFileAttributes ( (ProcessManager::gameDir + RELAY_LIST).c_str());
+
+    if ( val == INVALID_FILE_ATTRIBUTES )
+    {
+        lastError += "\nMissing " RELAY_LIST "!";
+        success = false;
     }
 
     if ( checkGameExe )

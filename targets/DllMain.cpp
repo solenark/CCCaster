@@ -659,7 +659,6 @@ struct DllMain
 
 
         // [MeltyStats] => Registering that match has started
-        // TODO => Pass correct lobby update info and Test
         if (netMan.getState() == NetplayState::InGame && shouldAnnounceMatchHasStarted)
         {            
             shouldAnnounceMatchHasStarted = false;
@@ -739,7 +738,6 @@ struct DllMain
         }
     
         // [MeltyStats] => Updating control variable (match started)
-        // TODO => Test
         if (netMan.getState() == NetplayState::RetryMenu)
         {
             shouldAnnounceMatchHasStarted = true;

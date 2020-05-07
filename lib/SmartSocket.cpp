@@ -13,8 +13,22 @@ using namespace std;
 
 #define SEND_INTERVAL ( 50 )
 
+static std::string GetAppPath()
+{
+      TCHAR szEXEPath[MAX_PATH];
+    GetModuleFileName ( NULL, szEXEPath, MAX_PATH );
+      for(int i=strlen(szEXEPath)-2; i>-1; i--)
+      {
+            if(szEXEPath[i]=='\\'){
+                  szEXEPath[i+1] = '\0';
+                  break;
+            }
+      }
+      return szEXEPath;
+}
+
 static vector<IpAddrPort> loadRelays() {
-    std::ifstream infile(RELAY_LIST);
+    std::ifstream infile(GetAppPath() + RELAY_LIST);
     std::string str;
     vector<IpAddrPort> relays;
     while (std::getline(infile, str)) {
