@@ -43,7 +43,6 @@ static const string uiTitle = "CCCaster Statistics " + LocalVersion.majorMinor()
 
 static ConsoleUi::Menu *mainMenu = 0;
 
-
 MainUi::MainUi() : _updater ( this )
 {
 }
@@ -542,6 +541,7 @@ void MainUi::settings()
     {
         "Alert on connect",
         "Display name",
+        "Set CCCasterStatistics Endpoint",
         "Set CCCasterStatistics Battle Key",
         "Show full character names",
         "Game CPU priority",
@@ -627,8 +627,25 @@ void MainUi::settings()
                 _ui->pop();
                 break;
 
+            case 2:
+                _ui->pushInFront ( new ConsoleUi::Prompt ( ConsoleUi::Prompt::String,
+                                   "Enter the CCCasterStatistics endpoint:" ),
+                { 1, 0 }, true ); // Expand width and clear top
 
-             case 2:
+                _ui->top<ConsoleUi::Prompt>()->setInitial ( _config.getString ( "statsApiEndpoint" ) );
+                _ui->popUntilUserInput();
+
+                if ( _ui->top()->resultInt == 0 )
+                {
+                    _config.setString ( "statsApiEndpoint", _ui->top()->resultStr );
+                    saveConfig();
+                }
+
+                _ui->pop();
+                break;
+
+
+             case 3:
                 _ui->pushInFront ( new ConsoleUi::Prompt ( ConsoleUi::Prompt::String,
                                    "Enter your API Key:" ),
                 { 1, 0 }, true ); // Expand width and clear top
@@ -645,7 +662,7 @@ void MainUi::settings()
                 _ui->pop();
                 break;
 
-            case 3:
+            case 4:
                 _ui->pushInFront ( new ConsoleUi::Menu ( "Show full character names when spectating?",
                 { "Yes", "No" }, "Cancel" ),
                 { 0, 0 }, true ); // Don't expand but DO clear top
@@ -662,7 +679,7 @@ void MainUi::settings()
                 _ui->pop();
                 break;
 
-            case 4:
+            case 5:
                 _ui->pushInFront ( new ConsoleUi::Menu ( "Start game with high CPU priority?",
                 { "Yes", "No" }, "Cancel" ),
                 { 0, 0 }, true ); // Don't expand but DO clear top
@@ -679,7 +696,7 @@ void MainUi::settings()
                 _ui->pop();
                 break;
 
-            case 5:
+            case 6:
                 _ui->pushInFront ( new ConsoleUi::Prompt ( ConsoleUi::Prompt::Integer, "Enter versus mode win count:" ),
                 { 0, 0 }, true ); // Don't expand but DO clear top
 
@@ -714,7 +731,7 @@ void MainUi::settings()
                 _ui->pop();
                 break;
 
-            // case 6:
+            // case *:
             //     _ui->pushInFront ( new ConsoleUi::Menu ( "Check for updates on startup?",
             //     { "Yes", "No" }, "Cancel" ),
             //     { 0, 0 }, true ); // Don't expand but DO clear top
@@ -731,7 +748,7 @@ void MainUi::settings()
             //     _ui->pop();
             //     break;
 
-            case 6:
+            case 7:
                 _ui->pushInFront ( new ConsoleUi::Prompt ( ConsoleUi::Prompt::Integer,
                                    "Enter max allowed network delay:" ),
                 { 0, 0 }, true ); // Don't expand but DO clear top
@@ -767,7 +784,7 @@ void MainUi::settings()
                 _ui->pop();
                 break;
 
-            case 7:
+            case 8:
                 _ui->pushInFront ( new ConsoleUi::Prompt ( ConsoleUi::Prompt::Integer, "Enter default rollback:" ),
                 { 0, 0 }, true ); // Don't expand but DO clear top
 
@@ -797,7 +814,7 @@ void MainUi::settings()
                 _ui->pop();
                 break;
 
-            case 8:
+            case 9:
             {
                 _ui->pushInFront ( new ConsoleUi::TextBox (
                                        "Number of seconds needed to hold the start button\n"
@@ -835,9 +852,9 @@ void MainUi::settings()
                 break;
             }
 
-            case 9:
+            case 10:
                 _ui->pushInFront ( new ConsoleUi::TextBox ( format ( "CCCaster %s%s\n\nRevision %s\n\nBuilt on %s\n\n"
-                                   "Created by Madscientist\nCCCasterStatistics upgrade made by Arkhar\n\nPress any key to go back",
+                                   "Created by Madscientist\nCCCasterStatistics update by Arkhar\n\nPress any key to go back",
                                    LocalVersion.code,
 #if defined(DEBUG)
                                    " (debug)",
@@ -879,7 +896,8 @@ void MainUi::initialize()
     _config.setInteger ( "alertOnConnect", 3 );
     _config.setString ( "alertWavFile", "SystemDefault" );
     _config.setString ( "displayName", ProcessManager::fetchGameUserName() );
-    _config.setString ( "statsApiKey", ProcessManager::fetchGameUserName() );
+    _config.setString ( "statsApiEndpoint", "http://meltystats.com" );
+    _config.setString ( "statsApiKey", "" );
     _config.setInteger ( "fullCharacterName", 0 );
     _config.setInteger ( "highCpuPriority", 1 );
     _config.setInteger ( "versusWinCount", 2 );
@@ -887,6 +905,8 @@ void MainUi::initialize()
     _config.setInteger ( "defaultRollback", 4 );
     _config.setInteger ( "autoCheckUpdates", 0 );
     _config.setDouble ( "heldStartDuration", 1.5 );
+    // [MeltyStats] => Lobby enter verification
+    _config.setInteger ( "shouldEnterMeltyStatsLobby", 0 ); 
 
     // Cached UI state (defaults)
     _config.setInteger ( "lastUsedPort", -1 );
@@ -998,6 +1018,7 @@ void MainUi::main ( RunFuncPtr run )
         const vector<string> options =
         {
             "Netplay",
+            "Netplay (Lobby)",
             "Spectate",
             "Broadcast",
             "Offline",
@@ -1062,26 +1083,32 @@ void MainUi::main ( RunFuncPtr run )
         switch ( mainSelection )
         {
             case 0:
+                _config.setInteger ( "shouldEnterMeltyStatsLobby", 0 );
                 netplay ( run );
                 break;
 
             case 1:
-                spectate ( run );
+                _config.setInteger ( "shouldEnterMeltyStatsLobby", 1 );
+                netplay ( run );
                 break;
 
             case 2:
-                broadcast ( run );
+                spectate ( run );
                 break;
 
             case 3:
-                offline ( run );
+                broadcast ( run );
                 break;
 
             case 4:
-                controls();
+                offline ( run );
                 break;
 
             case 5:
+                controls();
+                break;
+
+            case 6:
                 settings();
                 break;
 

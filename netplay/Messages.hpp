@@ -28,6 +28,17 @@ struct ErrorMessage : public SerializableSequence
     PROTOCOL_MESSAGE_BOILERPLATE ( ErrorMessage, error )
 };
 
+struct MatchStartedMessage : public SerializableSequence
+{
+    std::string message;
+
+    MatchStartedMessage ( const std::string& message ) : message ( message ) {}
+
+    std::string str() const override { return format ( "Mensagem[%s]", message ); }
+
+    PROTOCOL_MESSAGE_BOILERPLATE ( MatchStartedMessage, message )
+};
+
 struct MatchEndedMessage : public SerializableSequence
 {
     std::string message;

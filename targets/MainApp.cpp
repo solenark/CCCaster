@@ -31,6 +31,10 @@ extern string lastError;
 
 static Mutex uiMutex;
 
+static bool shouldRunLobbyLoop; // Controls whether the lobby loop should be kept running
+
+static std::string lobbyEntryData = "";
+
 static CondVar uiCondVar;
 
 
@@ -153,6 +157,49 @@ static void setClipboard ( const string& str )
         LOG ( "OpenClipboard failed: %s", WinException::getLastError() );
     }
 }
+
+// [MeltyStats] => Lobby Polling Thread Logic
+struct LobbyWaitingThread : public MatchStatisticsHttpService::Owner, public Thread
+{
+    MatchStatisticsHttpService matchStatisticsHttpService;
+    std::string* dataToSend;
+
+    LobbyWaitingThread(std::string* lobbyEntryData)
+        : matchStatisticsHttpService(this)
+    {
+        dataToSend = lobbyEntryData;
+        
+    }
+
+    void statisticsSentDataResult(MatchStatisticsHttpService *extIpAddr,  const string& address) override
+    {
+        LOG ( "Lobby sent data with success" );
+    }
+
+    void statisticsSentDataError(MatchStatisticsHttpService *extIpAddr) override
+    {
+        LOG ( "Could not send lobby data" );
+    }
+
+    void run() override
+    { 
+        while (shouldRunLobbyLoop)
+        {
+            if (*dataToSend == "")
+            {
+                LOG ( "Waiting for Lobby data to be generated" );
+                Sleep(1000);
+            }
+            else
+            {
+                matchStatisticsHttpService.start( ui.getConfig().getString( "statsApiEndpoint" ) +  "/lobby",  *dataToSend);
+                Sleep(60000);
+            }            
+        }
+        
+        return;
+    }
+};
 
 struct MainApp
         : public Main
@@ -338,6 +385,8 @@ struct MainApp
 
         EventManager::get().stop();
 
+        shouldRunLobbyLoop = false;
+
         LOCK ( uiMutex );
         uiCondVar.signal();
     }
@@ -358,16 +407,24 @@ struct MainApp
     {
         std::string encryptData = encryptDecrypt(sessionData);
         std::string encodedData =  base64_encode(reinterpret_cast<const unsigned char*>(encryptData.c_str()),encryptData.length());
-        matchStatisticsHttpService.start("http://3.219.128.101/session", encodedData);
-        ui.display (  "[CCCaster Statistics] Sent session data" );
+        matchStatisticsHttpService.start(ui.getConfig().getString( "statsApiEndpoint" ) +  "/session", encodedData);
+        LOG (  "CCCaster Statistics: Sent session data" );
     }
 
-    void sendMatchData(const string& matchData = "")
+    void sendMatchStartedData(const string& matchData = "")
     {
         std::string encryptData = encryptDecrypt(matchData);
         std::string encodedData =  base64_encode(reinterpret_cast<const unsigned char*>(encryptData.c_str()),encryptData.length());
-        matchStatisticsHttpService.start("http://3.219.128.101/match",  encodedData);
-        ui.display (  "[CCCaster Statistics] Sent match statistics data" );
+        matchStatisticsHttpService.start(ui.getConfig().getString( "statsApiEndpoint" ) +  "/lobby",  encodedData);
+        LOG (  "CCCasterStatistics: Sent match statistics data" );
+    }
+
+    void sendMatchEndedData(const string& matchData = "")
+    {
+        std::string encryptData = encryptDecrypt(matchData);
+        std::string encodedData =  base64_encode(reinterpret_cast<const unsigned char*>(encryptData.c_str()),encryptData.length());
+        matchStatisticsHttpService.start(ui.getConfig().getString( "statsApiEndpoint" ) +  "/match",  encodedData);
+        LOG (  "CCCasterStatistics: Sent match statistics data" );
     }
 
     void gotVersionConfig ( Socket *socket, const VersionConfig& versionConfig )
@@ -618,6 +675,8 @@ struct MainApp
 
     void getUserConfirmation()
     {
+        shouldRunLobbyLoop = false;
+
         // Disable keyboard hooks for the UI
         KeyboardManager::get().unhook();
 
@@ -656,12 +715,26 @@ struct MainApp
         LOCK ( uiMutex );
         uiCondVar.signal();
     }
-
+  
     void waitForUserConfirmation()
     {
+        // [MeltyStats] => Asynchronous lobby thread
+        if ( ui.getConfig().getInteger( "shouldEnterMeltyStatsLobby" ) == 1  && clientMode.isHost())
+        {            
+            ThreadPtr lobbyThread ( new LobbyWaitingThread(&lobbyEntryData) );
+
+            lobbyThread->start();
+
+            EventManager::get().addThread ( lobbyThread );
+
+            shouldRunLobbyLoop = true;
+        }
+        
         // This runs a different thread waiting for user confirmation
         LOCK ( uiMutex );
         uiCondVar.wait ( uiMutex );
+
+        shouldRunLobbyLoop = false;
 
         if ( ! EventManager::get().isRunning() )
             return;
@@ -851,8 +924,7 @@ struct MainApp
 
     void startGame()
     {
-        KeyboardManager::get().unhook();
-        std::string apiKey = ui.getConfig().getString( "statsApiKey" );
+        KeyboardManager::get().unhook();        
 
         if ( clientMode.isLocal() )
         {
@@ -869,20 +941,21 @@ struct MainApp
 
         if ( clientMode.isNetplay() )
         {
-         
-            // Aqui
+                     
             netplayConfig.mode.value = clientMode.value;
             netplayConfig.mode.flags = clientMode.flags = initialConfig.mode.flags;
             netplayConfig.winCount = initialConfig.winCount;
             netplayConfig.setNames ( initialConfig.localName, initialConfig.remoteName );
 
+
+            // [MeltyStats] => Registering the session (booth host and client should register the session)
             if (clientMode.isHost())
             {
-                registerSession(format("SID=%s;HKE=%s;HCV=%s",options.arg ( Options::SessionId ), apiKey,LocalVersion));
+                registerSession(format("SID=%s;HKE=%s;HCV=%s",options.arg ( Options::SessionId ), ui.getConfig().getString( "statsApiKey" ),LocalVersion));
             }
             else
             {
-                registerSession(format("SID=%s;CKE=%s;CCV=%s",options.arg ( Options::SessionId ), apiKey,LocalVersion));
+                registerSession(format("SID=%s;CKE=%s;CCV=%s",options.arg ( Options::SessionId ), ui.getConfig().getString( "statsApiKey" ),LocalVersion));
             }
             
             LOG ( "NetplayConfig: %s; flags={ %s }; delay=%d; rollback=%d; rollbackDelay=%d; winCount=%d; "
@@ -1216,14 +1289,25 @@ struct MainApp
                 stop ( msg->getAs<ErrorMessage>().error );
                 return;
 
+            case MsgType::MatchStartedMessage:
+
+                // [MeltyStats] => Send Match Data on Event notification
+                if (clientMode.isHost() && ui.getConfig().getInteger( "shouldEnterMeltyStatsLobby" ) == 1 )
+                {
+                    sendMatchStartedData(msg->getAs<MatchStartedMessage>().message);
+                }
+
+                return;
+
+            break;
+
   
             case MsgType::MatchEndedMessage:
 
-                // AQUI
-
+                // [MeltyStats] => Send Match Data on Event notification                
                 if (clientMode.isHost())
                 {
-                    sendMatchData(msg->getAs<MatchEndedMessage>().message);
+                    sendMatchEndedData(msg->getAs<MatchEndedMessage>().message);
                 }
 
                 return;
@@ -1295,16 +1379,18 @@ struct MainApp
         }
     }
 
-    // matchStatisticsHttpService callbacks
+    // [MeltyStats] => matchStatisticsHttpService callbacks
+    // TODO => Perform properly error handling
     void statisticsSentDataResult(MatchStatisticsHttpService *extIpAddr,  const string& address) override
-    {
-        ui.display ( "[CCCaster Statistics] Statistics data sent successfully!" );
+    {        
+        LOG ( "[CCCaster Statistics] Statistics data sent successfully!" );
     }
 
-    // matchStatisticsHttpService callbacks
+    // [MeltyStats] => matchStatisticsHttpService callbacks
+    // TODO => Perform properly error handling
     void statisticsSentDataError(MatchStatisticsHttpService *extIpAddr) override
-    {
-        ui.display ( "[CCCaster Statistics] Could not sent statistics data." );
+    {        
+        LOG ( "[CCCaster Statistics] Could not sent statistics data." );
     }
 
     // ExternalIpAddress callbacks
@@ -1463,6 +1549,9 @@ private:
         else
         {
             setClipboard ( format ( "%s:%u", externalIpAddress.address, port ) );
+
+            std::string encryptLobbyEntryData = encryptDecrypt(format("HKE=%s;HCV=%s;HIP=%s;HPO=%s",ui.getConfig().getString( "statsApiKey" ),LocalVersion,externalIpAddress.address, std::to_string(( clientMode.isBroadcast() ? netplayConfig.broadcastPort : address.port ))));            
+            lobbyEntryData = base64_encode(reinterpret_cast<const unsigned char*>(encryptLobbyEntryData.c_str()),encryptLobbyEntryData.length());;
 
             ui.display ( format ( "%s at %s:%u%s\n(Address copied to clipboard)",
                                   ( clientMode.isBroadcast() ? "Broadcasting" : "Hosting" ),
